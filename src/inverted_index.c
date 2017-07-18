@@ -15,8 +15,7 @@ static size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIn
                         int singleWordMode);
 
 static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
-                         t_fieldMask fieldMask, uint32_t freq, uint32_t offsetsSz,
-                         RSOffsetVector *offsets);
+                         t_fieldMask fieldMask, uint32_t freq, RSOffsetVector *offsets);
 
 void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
@@ -68,15 +67,14 @@ void InvertedIndex_Free(void *ctx) {
 // 0. (empty)
 
 static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
-                         t_fieldMask fieldMask, uint32_t freq, uint32_t offsetsSz,
-                         RSOffsetVector *offsets) {
+                         t_fieldMask fieldMask, uint32_t freq, RSOffsetVector *offsets) {
   size_t sz = 0;
   switch (idxflags & INDEX_STORAGE_MASK) {
     // 1. Full encoding - docId, freq, flags, offset
 
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
-      sz = qint_encode4(bw, docId, (uint32_t)freq, (uint32_t)fieldMask, (uint32_t)offsetsSz);
-      sz += Buffer_Write(bw, offsets->data, offsetsSz);
+      sz = qint_encode4(bw, docId, (uint32_t)freq, (uint32_t)fieldMask, (uint32_t)offsets->len);
+      sz += Buffer_Write(bw, offsets->data, offsets->len);
       break;
 
     // 2. (Frequency, Field)
@@ -96,20 +94,20 @@ static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
 
     // 5. (field, offset)
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
-      sz = qint_encode3(bw, docId, (uint32_t)fieldMask, offsetsSz);
-      sz += Buffer_Write(bw, offsets->data, offsetsSz);
+      sz = qint_encode3(bw, docId, (uint32_t)fieldMask, offsets->len);
+      sz += Buffer_Write(bw, offsets->data, offsets->len);
       break;
 
     // 6. (offset)
     case Index_StoreTermOffsets:
-      sz = qint_encode2(bw, docId, offsetsSz);
-      sz += Buffer_Write(bw, offsets->data, offsetsSz);
+      sz = qint_encode2(bw, docId, offsets->len);
+      sz += Buffer_Write(bw, offsets->data, offsets->len);
       break;
 
     // 7. (freq, offset) Store term offsets but not field flags
     case Index_StoreFreqs | Index_StoreTermOffsets:
-      sz = qint_encode3(bw, docId, (uint32_t)freq, (uint32_t)offsetsSz);
-      sz += Buffer_Write(bw, offsets->data, offsetsSz);
+      sz = qint_encode3(bw, docId, (uint32_t)freq, (uint32_t)offsets->len);
+      sz += Buffer_Write(bw, offsets->data, offsets->len);
       break;
 
     // 0. docid only
@@ -141,13 +139,11 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
     blk->firstId = ent->docId;
   }
   size_t ret = 0;
-
   RSOffsetVector offsets = (RSOffsetVector){ent->vw->bw.buf->data, ent->vw->bw.buf->offset};
 
   BufferWriter bw = NewBufferWriter(blk->data);
 
-  ret = writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->fieldMask, ent->freq,
-                   offsets.len, &offsets);
+  ret = writeEntry(&bw, idx->flags, ent->docId - blk->lastId, ent->fieldMask, ent->freq, &offsets);
 
   idx->lastId = ent->docId;
   blk->lastId = ent->docId;
@@ -476,7 +472,7 @@ int IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags) {
         // printf("Writing entry %d, last read id %d, last blk id %d\n", docId, lastReadId,
         //        blk->lastId);
         writeEntry(&bw, flags, res->docId - blk->lastId, res->fieldMask, res->freq,
-                   res->term.offsets.len, &res->term.offsets);
+                   &res->term.offsets);
       } else {
         bw.buf->offset += sz;
         bw.pos += sz;
