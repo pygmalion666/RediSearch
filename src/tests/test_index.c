@@ -194,7 +194,9 @@ int testIndexReadWriteFlags(uint32_t indexFlags) {
 
 int testIndexReadWrite() {
   for (uint32_t i = 0; i < 32; i++) {
+    printf("Testing %u BEGIN\n", i);
     int rv = testIndexReadWriteFlags(i);
+    printf("Testing %u END\n", i);
     if (rv != 0) {
       return -1;
     }
@@ -611,7 +613,7 @@ int testIndexFlags() {
 
   ASSERT(w->flags == flags);
   size_t sz = InvertedIndex_WriteEntry(w, &h);
-  // printf("written %d bytes. Offset=%d\n", sz, h.vw->bw.buf->offset);
+  printf("written %d bytes. Offset=%d\n", sz, h.vw->bw.buf->offset);
   ASSERT_EQUAL(16, sz);
   InvertedIndex_Free(w);
 
@@ -619,7 +621,7 @@ int testIndexFlags() {
   w = NewInvertedIndex(flags, 1);
   ASSERT(!(w->flags & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteEntry(w, &h);
-  // printf("Wrote %d bytes. Offset=%d\n", sz2, h.vw->bw.buf->offset);
+  printf("Wrote %d bytes. Offset=%d\n", sz2, h.vw->bw.buf->offset);
   ASSERT_EQUAL(sz2, sz - Buffer_Offset(h.vw->bw.buf) - 1);
   InvertedIndex_Free(w);
 

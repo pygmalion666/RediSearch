@@ -11,11 +11,12 @@
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
 
-size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIndexResult *res,
-                 int singleWordMode);
+static size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIndexResult *res,
+                        int singleWordMode);
 
-size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId, t_fieldMask fieldMask,
-                  uint32_t freq, uint32_t offsetsSz, RSOffsetVector *offsets);
+static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
+                         t_fieldMask fieldMask, uint32_t freq, uint32_t offsetsSz,
+                         RSOffsetVector *offsets);
 
 void InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId) {
 
@@ -66,8 +67,9 @@ void InvertedIndex_Free(void *ctx) {
 //
 // 0. (empty)
 
-size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId, t_fieldMask fieldMask,
-                  uint32_t freq, uint32_t offsetsSz, RSOffsetVector *offsets) {
+static size_t writeEntry(BufferWriter *bw, IndexFlags idxflags, t_docId docId,
+                         t_fieldMask fieldMask, uint32_t freq, uint32_t offsetsSz,
+                         RSOffsetVector *offsets) {
   size_t sz = 0;
   switch (idxflags & INDEX_STORAGE_MASK) {
     // 1. Full encoding - docId, freq, flags, offset
@@ -166,7 +168,7 @@ void indexReader_advanceBlock(IndexReader *ir) {
   ir->lastId = 0;  // IR_CURRENT_BLOCK(ir).firstId;
 }
 
-inline size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIndexResult *res,
+static size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIndexResult *res,
                         int singleWordMode) {
 
   size_t startPos = BufferReader_Offset(br);
@@ -180,8 +182,7 @@ inline size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIn
 
     // 2. (freq, field) Load field mask but not term offsets
     case Index_StoreFreqs | Index_StoreFieldFlags:
-      // FIXME: qint_decode(br, (uint32_t *)res, 3);
-      qint_decode3(br, &res->docId, &res->freq, &res->fieldMask);
+      qint_decode(br, (uint32_t *)res, 3);
       break;
 
     // 3. (freq) Load neither -we load just freq and docId
