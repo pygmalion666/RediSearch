@@ -1410,7 +1410,7 @@ qintConfig
 
 /* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid */
 size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, int len) {
-  uint8_t *p = (uint8_t *)BufferReader_Current(br);
+  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
 
   // the most common case (4 1-byte ints) has a simpler flow.
   // this stupid optimization actually yields about 10% speedup
@@ -1418,8 +1418,8 @@ size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, in
     for (int i = 0; i < len; i++) {
       arr[i] = p[i + 1];
     }
-    Buffer_Skip(br, 5);
-    return 5;
+    Buffer_Skip(br, len + 1);
+    return len + 1;
   }
 
   // less common case...
@@ -1428,8 +1428,9 @@ size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, in
     arr[i] = *(uint32_t *)(p + qc->fields[i].offset) & qc->fields[i].mask;
   }
 
-  Buffer_Skip(br, qc->size);
-  return qc->size;
+  size_t nskip = len == 4 ? qc->size : qc->fields[len].offset;
+  Buffer_Skip(br, nskip);
+  return nskip;
 }
 
 #define qint_member(p, i)                                       \
