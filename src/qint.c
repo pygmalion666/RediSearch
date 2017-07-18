@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 #include "buffer.h"
 #include "rmalloc.h"
 #include "qint.h"
@@ -111,7 +112,7 @@ size_t qint_encode4(BufferWriter *bw, uint32_t i1, uint32_t i2, uint32_t i3, uin
 /* field configuration for the qint table */
 typedef struct {
   int offset;
-  uint32_t mask;
+  uint32_t headerMask;
 } qintField;
 
 /* qint configuration per leading byte - including the size of the encoded block, and the offsets of
@@ -121,7 +122,8 @@ typedef struct {
   qintField fields[4];
 } qintConfig;
 
-/* configuration table - per leading byte value, we save the offsets and masks of all fields for
+/* configuration table - per leading byte value, we save the offsets and headerMasks of all fields
+ * for
  * immediate access to them */
 qintConfig
     configs[256] =
@@ -1408,24 +1410,22 @@ qintConfig
              .size = 17},
 };
 
-/* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid */
-size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, int len) {
-  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
+size_t qint_decode_legacy(BufferReader *br, uint32_t *arr, int len) {
 
   // the most common case (4 1-byte ints) has a simpler flow.
   // this stupid optimization actually yields about 10% speedup
-  if (!*p) {
+  const uint8_t *p = (uint8_t *)BufferReader_Current(br);
+  uint8_t header = *p;
+  if (!header) {
     for (int i = 0; i < len; i++) {
       arr[i] = p[i + 1];
     }
     Buffer_Skip(br, len + 1);
     return len + 1;
   }
-
-  // less common case...
-  qintConfig *qc = &configs[*p];
+  const qintConfig *qc = &configs[*p];
   for (int i = 0; i < len; i++) {
-    arr[i] = *(uint32_t *)(p + qc->fields[i].offset) & qc->fields[i].mask;
+    arr[i] = *(uint32_t *)(p + qc->fields[i].offset) & qc->fields[i].headerMask;
   }
 
   size_t nskip = len == 4 ? qc->size : qc->fields[len].offset;
@@ -1433,10 +1433,50 @@ size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, in
   return nskip;
 }
 
+static const uint32_t masks[] = {0xff, 0xffff, 0xffffff, 0xffffffff};
+/* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid */
+size_t qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr, int len) {
+  //   if (1) {
+  //     return qint_decode_legacy(br, arr, len);
+  //   }
+  const uint8_t *start = (uint8_t *)BufferReader_Current(br);
+  const uint8_t *p = start;
+  uint8_t header = *p;
+
+  p++;
+  for (int i = 0; i < len; i++) {
+    const uint8_t val = (header >> (i * 2)) & 0x03;
+    // arr[i] = *(uint32_t *)p & masks[val];
+    // p += val + 1;
+    switch (val) {
+      case 2:
+        arr[i] = *(uint32_t *)p & 0xFFFFFF;
+        p += 3;
+        break;
+      case 0:
+        arr[i] = p[0];
+        p++;
+        break;
+      case 1:
+        arr[i] = *(uint32_t *)p & 0xFFFF;
+        p += 2;
+        break;
+
+      default:
+        arr[i] = *(uint32_t *)p;
+        p += 4;
+    }
+  }
+
+  size_t nread = p - start;
+  br->pos += nread;
+  return nread;
+}
+
 #define qint_member(p, i)                                       \
   (*(uint32_t *)(p + configs[*(uint8_t *)p].fields[i].offset) & \
-   configs[*(uint8_t *)p].fields[i].mask)
-#define qint_memberx(p, c, i) (*(uint32_t *)(p + c.fields[i].offset) & c.fields[i].mask)
+   configs[*(uint8_t *)p].fields[i].headerMask)
+#define qint_memberx(p, c, i) (*(uint32_t *)(p + c.fields[i].offset) & c.fields[i].headerMask)
 
 size_t qint_decode1(BufferReader *br, uint32_t *i) {
   *i = qint_member(BufferReader_Current(br), 0);
@@ -1476,12 +1516,12 @@ size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3, u
 // void printConfig(unsigned char c) {
 
 //   int off = 1;
-//   int masks[4] = {0xff, 0xffff, 0xffffff, 0xffffffff};
+//   int headerMasks[4] = {0xff, 0xffff, 0xffffff, 0xffffffff};
 
 //   printf("{.fields = {");
 
 //   for (int i = 0; i < 8; i += 2) {
-//     printf("{%d, 0x%x},", off, masks[(c >> i) & 0x03]);
+//     printf("{%d, 0x%x},", off, headerMasks[(c >> i) & 0x03]);
 //     off += ((c >> i) & 0x03) + 1;
 //   }
 
@@ -1530,7 +1570,7 @@ size_t qint_decode4(BufferReader *br, uint32_t *i, uint32_t *i2, uint32_t *i3, u
 //   printf("Total: %zdms for %d iters, %fns/iter", TimeSampler_DurationMS(&ts), ts.num,
 //          (double)TimeSampler_DurationNS(&ts) / (double)ts.num);
 //   printf("%d\n", total);
-//   //   //printf("%d %x\n",config.fields[i].offset, config.fields[i].mask);
+//   //   //printf("%d %x\n",config.fields[i].offset, config.fields[i].headerMask);
 //   //   printf("%d\n", );
 //   // }
 //   return 0;

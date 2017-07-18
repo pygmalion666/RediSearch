@@ -395,6 +395,7 @@ int testIntersection() {
   // TimeSampler_DurationMS(&ts),
   // 1000000 * TimeSampler_IterationMS(&ts));
   // printf("top freq: %f\n", topFreq);
+  printf("Count=%u\n", count);
   ASSERT(count == 50000)
   ASSERT(topFreq == 100000.0);
 
@@ -420,12 +421,12 @@ int testBuffer() {
 
   ASSERT(l == strlen(x) + 1);
   ASSERT(Buffer_Offset(w.buf) == l);
-  ASSERT_EQUAL(Buffer_Capacity(w.buf), 14);
+  ASSERT_EQUAL(Buffer_Capacity(w.buf), 16);
 
   l = WriteVarint(1337654, &w);
   ASSERT(l == 3);
   ASSERT_EQUAL(Buffer_Offset(w.buf), 15);
-  ASSERT_EQUAL(Buffer_Capacity(w.buf), 17);
+  ASSERT_EQUAL(Buffer_Capacity(w.buf), 16);
 
   Buffer_Truncate(w.buf, 0);
 

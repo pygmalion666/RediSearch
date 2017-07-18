@@ -139,7 +139,13 @@ size_t InvertedIndex_WriteEntry(InvertedIndex *idx,
     blk->firstId = ent->docId;
   }
   size_t ret = 0;
-  RSOffsetVector offsets = (RSOffsetVector){ent->vw->bw.buf->data, ent->vw->bw.buf->offset};
+  RSOffsetVector offsets;
+  if (ent->vw) {
+    offsets = (RSOffsetVector){ent->vw->bw.buf->data, ent->vw->bw.buf->offset};
+  } else {
+    offsets.data = NULL;
+    offsets.len = 0;
+  }
 
   BufferWriter bw = NewBufferWriter(blk->data);
 
@@ -164,6 +170,56 @@ void indexReader_advanceBlock(IndexReader *ir) {
   ir->lastId = 0;  // IR_CURRENT_BLOCK(ir).firstId;
 }
 
+static const uint32_t masks[] = {0xff, 0xffff, 0xffffff, 0xffffffff};
+
+//* Decode up to 4 integers into an array. Returns the amount of data consumed or 0 if len invalid
+//*/
+static inline size_t my_qint_decode(BufferReader *__restrict__ br, uint32_t *__restrict__ arr,
+                                    int len) {
+  //   if (1) {
+  //     return qint_decode_legacy(br, arr, len);
+  //   }
+  const uint8_t *start = (uint8_t *)BufferReader_Current(br);
+  const uint8_t *p = start;
+  uint8_t header = *p;
+
+  p++;
+  for (int i = 0; i < len; i++) {
+    const uint8_t val = (header >> (i * 2)) & 0x03;
+    // arr[i] = *(uint32_t *)p & masks[val];
+    // p += val + 1;
+    switch (val) {
+      case 2:
+        arr[i] = *(uint32_t *)p & 0xFFFFFF;
+        p += 3;
+        break;
+      case 0:
+        arr[i] = p[0];
+        p++;
+        break;
+      case 1:
+        arr[i] = *(uint32_t *)p & 0xFFFF;
+        p += 2;
+        break;
+
+      default:
+        arr[i] = *(uint32_t *)p;
+        p += 4;
+    }
+  }
+
+  size_t nread = p - start;
+  br->pos += nread;
+  return nread;
+}
+
+static size_t readFreqsFlags(BufferReader *br, IndexFlags idxflags, RSIndexResult *res,
+                             int ignored) {
+  size_t startPos = BufferReader_Offset(br);
+  return my_qint_decode(br, (uint32_t *)res, 3);
+  return BufferReader_Offset(br) - startPos;
+}
+
 static size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIndexResult *res,
                         int singleWordMode) {
 
@@ -171,19 +227,19 @@ static size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIn
   switch ((uint32_t)idxflags) {
     // 1. (freq, field, offset) Full encoding - load docId, freq, flags, offset
     case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
-      qint_decode(br, (uint32_t *)res, 4);
+      my_qint_decode(br, (uint32_t *)res, 4);
       res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(br), .len = res->offsetsSz};
       Buffer_Skip(br, res->offsetsSz);
       break;
 
     // 2. (freq, field) Load field mask but not term offsets
     case Index_StoreFreqs | Index_StoreFieldFlags:
-      qint_decode(br, (uint32_t *)res, 3);
+      my_qint_decode(br, (uint32_t *)res, 3);
       break;
 
     // 3. (freq) Load neither -we load just freq and docId
     case Index_StoreFreqs:
-      qint_decode(br, (uint32_t *)res, 2);
+      my_qint_decode(br, (uint32_t *)res, 2);
       res->fieldMask = RS_FIELDMASK_ALL;
       break;
 
@@ -232,12 +288,22 @@ static size_t readEntry(BufferReader *__restrict__ br, IndexFlags idxflags, RSIn
   return BufferReader_Offset(br) - startPos;
 }
 
+typedef size_t(IndexDecoder)(BufferReader *br, IndexFlags flags, RSIndexResult *res, int);
+
 int IR_Read(void *ctx, RSIndexResult **e) {
 
   IndexReader *ir = ctx;
 
   int rc;
   BufferReader *br = &ir->br;
+
+  IndexDecoder *decoder;
+  uint32_t flags = ir->readFlags & INDEX_STORAGE_MASK;
+  if (flags == (Index_StoreFreqs | Index_StoreFieldFlags)) {
+    decoder = readFreqsFlags;
+  } else {
+    decoder = readEntry;
+  }
 
   do {
     if (BufferReader_AtEnd(br)) {
@@ -249,7 +315,8 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       br = &ir->br;
     }
 
-    readEntry(br, ir->readFlags, ir->record, ir->singleWordMode);
+    // readEntry(br, ir->readFlags, ir->record, ir->singleWordMode);
+    decoder(br, ir->readFlags, ir->record, ir->singleWordMode);
     ir->lastId = ir->record->docId += ir->lastId;
 
     // The record doesn't match the field filter. Continue to the next one

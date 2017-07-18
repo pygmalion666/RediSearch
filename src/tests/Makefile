@@ -2,8 +2,6 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=../
 endif
 
-.SILENT:
-
 CFLAGS = -g -O2 -fPIC -std=gnu99 -I./ 
 CFLAGS += -I$(RM_INCLUDE_DIR)
 
@@ -39,6 +37,8 @@ ext_example:
 	$(MAKE) -C ./ext-example clean all
 .PHONY: ext_example
 
+bench: bench.o
+	$(CC) $(CFLAGS) -o $@ $^ $(DEPS) $(LDFLAGS)
 
 stemmer: test_stemmer.o
 	$(CC) $(CFLAGS)  -o test_stemmer test_stemmer.o  $(DEPS) $(LDFLAGS)
@@ -93,7 +93,7 @@ build: stemmer trie index range extensions query stopwords
 	
 test: test_index test_stemmer test_trie	 test_range test_extensions test_query test_stopwords
 
-all: build test
+all: build test bench
 
 clean:
 	-rm -f *.o

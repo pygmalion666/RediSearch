@@ -3,15 +3,23 @@
 #include <assert.h>
 #include <sys/param.h>
 
+int Buffer_Reserve(Buffer *buf, size_t extraLen) {
+  if (buf->offset + extraLen <= buf->cap) {
+    return 0;
+  }
+
+  do {
+    buf->cap += MIN(1 + buf->cap / 5, 1024 * 1024);
+  } while (buf->offset + extraLen > buf->cap);
+
+  buf->data = rm_realloc(buf->data, buf->cap);
+  return 1;
+}
+
 size_t Buffer_Write(BufferWriter *bw, void *data, size_t len) {
 
   Buffer *buf = bw->buf;
-  if (buf->offset + len > buf->cap) {
-    do {
-      buf->cap += MIN(1 + buf->cap / 5, 1024 * 1024);
-    } while (buf->offset + len > buf->cap);
-
-    buf->data = rm_realloc(buf->data, buf->cap);
+  if (Buffer_Reserve(buf, len)) {
     bw->pos = buf->data + buf->offset;
   }
   memcpy(bw->pos, data, len);
@@ -149,27 +157,4 @@ inline size_t Buffer_Seek(BufferReader *br, size_t where) {
   br->pos = MIN(where, b->cap);
 
   return where;
-}
-
-inline size_t Buffer_Offset(Buffer *ctx) {
-  return ctx->offset;
-}
-
-inline size_t BufferReader_Offset(BufferReader *r) {
-  return r->pos;
-}
-
-inline char *BufferReader_Current(BufferReader *b) {
-  return b->buf->data + b->pos;
-}
-
-inline int Buffer_AtEnd(Buffer *ctx) {
-  return ctx->offset >= ctx->cap;
-}
-
-size_t Buffer_Capacity(Buffer *ctx) {
-  return ctx->cap;
-}
-inline int BufferReader_AtEnd(BufferReader *br) {
-  return br->pos >= br->buf->offset;
 }
